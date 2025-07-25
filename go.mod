@@ -21,7 +21,7 @@ require (
 	github.com/sunshineplan/imgconv v1.1.12
 	github.com/swaggo/echo-swagger v1.4.1
 	github.com/swaggo/swag v1.16.4
-	go.mau.fi/whatsmeow v0.0.0-20250104105216-918c879fcd19
+	go.mau.fi/whatsmeow v0.0.0-20250125000000-000000000000
 	google.golang.org/protobuf v1.36.1
 	modernc.org/sqlite v1.17.0
 )

@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"math/rand"
 	"net/http"
 	"runtime"
 	"strings"
@@ -35,6 +36,7 @@ import (
 
 var WhatsAppDatastore *sqlstore.Container
 var WhatsAppClient = make(map[string]*whatsmeow.Client)
+var WhatsAppClientEventHandlers = make(map[string]func(*whatsmeow.Client))
 
 var (
 	WhatsAppClientProxyURL string
@@ -77,6 +79,17 @@ func WhatsAppInitClient(device *store.Device, jid string) {
 		store.DeviceProps.Os = proto.String(WhatsAppGetUserOS())
 		store.DeviceProps.PlatformType = WhatsAppGetUserAgent("chrome").Enum()
 		store.DeviceProps.RequireFullSync = proto.Bool(false)
+		
+		// Enhanced device properties for protocol compatibility
+		store.DeviceProps.AppVersion = &waCompanionReg.DeviceProps_AppVersion{
+			Primary:   proto.Uint32(2),
+			Secondary: proto.Uint32(2412),
+			Tertiary:  proto.Uint32(54),
+		}
+		
+		// Add device manufacturer and model for better compatibility
+		store.DeviceProps.Manufacturer = proto.String("Google")
+		store.DeviceProps.Model = proto.String("Chrome")
 
 		// Set Client Versions
 		version.Major, err = env.GetEnvInt("WHATSAPP_VERSION_MAJOR")
@@ -95,6 +108,9 @@ func WhatsAppInitClient(device *store.Device, jid string) {
 		// Initialize New WhatsApp Client
 		// And Save it to The Map
 		WhatsAppClient[jid] = whatsmeow.NewClient(device, nil)
+		
+		// Add event handler for connection management
+		WhatsAppClient[jid].AddEventHandler(WhatsAppEventHandler(jid))
 
 		// Set WhatsApp Client Proxy Address if Proxy URL is Provided
 		if len(WhatsAppClientProxyURL) > 0 {
@@ -106,7 +122,45 @@ func WhatsAppInitClient(device *store.Device, jid string) {
 
 		// Set WhatsApp Client Auto Trust Identity
 		WhatsAppClient[jid].AutoTrustIdentity = true
+		
+		// Enhanced connection settings for protocol compatibility
+		WhatsAppClient[jid].EnableAutoReconnect = true
+		WhatsAppClient[jid].AutoTrustIdentity = true
+		
+		// Set custom user agent for better compatibility
+		WhatsAppClient[jid].SetUserAgent("WhatsApp/2.2412.54 Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
 	}
+}
+
+func WhatsAppEventHandler(jid string) func(interface{}) {
+	return func(evt interface{}) {
+		switch v := evt.(type) {
+		case *whatsmeow.ConnectedEvent:
+			log.Print(nil).Info("WhatsApp Client Connected for " + maskJID(jid))
+		case *whatsmeow.DisconnectedEvent:
+			log.Print(nil).Warn("WhatsApp Client Disconnected for " + maskJID(jid))
+			// Implement reconnection logic with backoff
+			go func() {
+				time.Sleep(time.Duration(5+rand.Intn(10)) * time.Second)
+				if WhatsAppClient[jid] != nil && !WhatsAppClient[jid].IsConnected() {
+					_ = WhatsAppReconnect(jid)
+				}
+			}()
+		case *whatsmeow.LoggedOutEvent:
+			log.Print(nil).Warn("WhatsApp Client Logged Out for " + maskJID(jid))
+			// Clean up client on logout
+			if WhatsAppClient[jid] != nil {
+				delete(WhatsAppClient, jid)
+			}
+		}
+	}
+}
+
+func maskJID(jid string) string {
+	if len(jid) > 4 {
+		return jid[0:len(jid)-4] + "xxxx"
+	}
+	return "xxxx"
 }
 
 func WhatsAppGetUserAgent(agentType string) waCompanionReg.DeviceProps_PlatformType {
@@ -189,23 +243,38 @@ func WhatsAppLogin(jid string) (string, int, error) {
 	if WhatsAppClient[jid] != nil {
 		// Make Sure WebSocket Connection is Disconnected
 		WhatsAppClient[jid].Disconnect()
+		
+		// Add connection retry logic
+		maxRetries := 3
+		var lastErr error
 
 		if WhatsAppClient[jid].Store.ID == nil {
-			// Device ID is not Exist
-			// Generate QR Code
-			qrChanGenerate, _ := WhatsAppClient[jid].GetQRChannel(context.Background())
+			for retry := 0; retry < maxRetries; retry++ {
+				// Device ID is not Exist
+				// Generate QR Code
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				qrChanGenerate, _ := WhatsAppClient[jid].GetQRChannel(ctx)
 
-			// Connect WebSocket while Initialize QR Code Data to be Sent
-			err := WhatsAppClient[jid].Connect()
-			if err != nil {
-				return "", 0, err
+				// Connect WebSocket while Initialize QR Code Data to be Sent
+				err := WhatsAppClient[jid].Connect()
+				if err != nil {
+					lastErr = err
+					cancel()
+					if retry < maxRetries-1 {
+						time.Sleep(time.Duration(2<<retry) * time.Second) // Exponential backoff
+						continue
+					}
+					return "", 0, fmt.Errorf("failed to connect after %d retries: %v", maxRetries, err)
+				}
+
+				// Get Generated QR Code and Timeout Information
+				qrImage, qrTimeout := WhatsAppGenerateQR(qrChanGenerate)
+				cancel()
+
+				// Return QR Code in Base64 Format and Timeout Information
+				return "data:image/png;base64," + qrImage, qrTimeout, nil
 			}
-
-			// Get Generated QR Code and Timeout Information
-			qrImage, qrTimeout := WhatsAppGenerateQR(qrChanGenerate)
-
-			// Return QR Code in Base64 Format and Timeout Information
-			return "data:image/png;base64," + qrImage, qrTimeout, nil
+			return "", 0, lastErr
 		} else {
 			// Device ID is Exist
 			// Reconnect WebSocket
@@ -226,21 +295,39 @@ func WhatsAppLoginPair(jid string) (string, int, error) {
 	if WhatsAppClient[jid] != nil {
 		// Make Sure WebSocket Connection is Disconnected
 		WhatsAppClient[jid].Disconnect()
+		
+		// Add connection retry logic
+		maxRetries := 3
+		var lastErr error
 
 		if WhatsAppClient[jid].Store.ID == nil {
-			// Connect WebSocket while also Requesting Pairing Code
-			err := WhatsAppClient[jid].Connect()
-			if err != nil {
-				return "", 0, err
-			}
+			for retry := 0; retry < maxRetries; retry++ {
+				// Connect WebSocket while also Requesting Pairing Code
+				err := WhatsAppClient[jid].Connect()
+				if err != nil {
+					lastErr = err
+					if retry < maxRetries-1 {
+						time.Sleep(time.Duration(2<<retry) * time.Second) // Exponential backoff
+						continue
+					}
+					return "", 0, fmt.Errorf("failed to connect after %d retries: %v", maxRetries, err)
+				}
 
-			// Request Pairing Code
-			code, err := WhatsAppClient[jid].PairPhone(jid, true, whatsmeow.PairClientChrome, "Chrome ("+WhatsAppGetUserOS()+")")
-			if err != nil {
-				return "", 0, err
-			}
+				// Request Pairing Code with enhanced parameters
+				code, err := WhatsAppClient[jid].PairPhone(jid, true, whatsmeow.PairClientChrome, "Chrome ("+WhatsAppGetUserOS()+")")
+				if err != nil {
+					lastErr = err
+					if retry < maxRetries-1 {
+						WhatsAppClient[jid].Disconnect()
+						time.Sleep(time.Duration(2<<retry) * time.Second)
+						continue
+					}
+					return "", 0, fmt.Errorf("failed to get pairing code after %d retries: %v", maxRetries, err)
+				}
 
-			return code, 160, nil
+				return code, 160, nil
+			}
+			return "", 0, lastErr
 		} else {
 			// Device ID is Exist
 			// Reconnect WebSocket
@@ -261,16 +348,34 @@ func WhatsAppReconnect(jid string) error {
 	if WhatsAppClient[jid] != nil {
 		// Make Sure WebSocket Connection is Disconnected
 		WhatsAppClient[jid].Disconnect()
+		
+		// Add reconnection retry logic
+		maxRetries := 5
+		var lastErr error
 
 		// Make Sure Store ID is not Empty
 		// To do Reconnection
 		if WhatsAppClient[jid] != nil {
-			err := WhatsAppClient[jid].Connect()
-			if err != nil {
-				return err
+			for retry := 0; retry < maxRetries; retry++ {
+				err := WhatsAppClient[jid].Connect()
+				if err != nil {
+					lastErr = err
+					if retry < maxRetries-1 {
+						time.Sleep(time.Duration(2<<retry) * time.Second) // Exponential backoff
+						continue
+					}
+					return fmt.Errorf("failed to reconnect after %d retries: %v", maxRetries, err)
+				}
+				
+				// Wait for connection to stabilize
+				time.Sleep(2 * time.Second)
+				
+				// Verify connection is stable
+				if WhatsAppClient[jid].IsConnected() {
+					return nil
+				}
 			}
-
-			return nil
+			return lastErr
 		}
 
 		return errors.New("WhatsApp Client Store ID is Empty, Please Re-Login and Scan QR Code Again")
@@ -316,9 +421,24 @@ func WhatsAppLogout(jid string) error {
 }
 
 func WhatsAppIsClientOK(jid string) error {
+	if WhatsAppClient[jid] == nil {
+		return errors.New("WhatsApp Client is not Initialized")
+	}
+	
 	// Make Sure WhatsApp Client is Connected
 	if !WhatsAppClient[jid].IsConnected() {
-		return errors.New("WhatsApp Client is not Connected")
+		// Try to reconnect once
+		err := WhatsAppReconnect(jid)
+		if err != nil {
+			return errors.New("WhatsApp Client is not Connected and Reconnection Failed: " + err.Error())
+		}
+		
+		// Wait a moment for connection to stabilize
+		time.Sleep(1 * time.Second)
+		
+		if !WhatsAppClient[jid].IsConnected() {
+			return errors.New("WhatsApp Client is not Connected")
+		}
 	}
 
 	// Make Sure WhatsApp Client is Logged In
@@ -332,15 +452,31 @@ func WhatsAppIsClientOK(jid string) error {
 func WhatsAppGetJID(jid string, id string) types.JID {
 	if WhatsAppClient[jid] != nil {
 		var ids []string
+		
+		// Enhanced JID validation with retry logic
+		maxRetries := 3
+		var lastErr error
 
 		ids = append(ids, "+"+id)
-		infos, err := WhatsAppClient[jid].IsOnWhatsApp(ids)
-		if err == nil {
-			// If WhatsApp ID is Registered Then
-			// Return ID Information
-			if infos[0].IsIn {
-				return infos[0].JID
+		
+		for retry := 0; retry < maxRetries; retry++ {
+			infos, err := WhatsAppClient[jid].IsOnWhatsApp(ids)
+			if err == nil {
+				// If WhatsApp ID is Registered Then
+				// Return ID Information
+				if len(infos) > 0 && infos[0].IsIn {
+					return infos[0].JID
+				}
+				break
 			}
+			lastErr = err
+			if retry < maxRetries-1 {
+				time.Sleep(time.Duration(1<<retry) * time.Second)
+			}
+		}
+		
+		if lastErr != nil {
+			log.Print(nil).Error("Failed to check WhatsApp registration: " + lastErr.Error())
 		}
 	}
 

@@ -7,11 +7,15 @@ import (
 
 func Startup() {
 	log.Print(nil).Info("Running Startup Tasks")
+	
+	// Add startup delay to ensure database is ready
+	time.Sleep(2 * time.Second)
 
 	// Load All WhatsApp Client Devices from Datastore
 	devices, err := pkgWhatsApp.WhatsAppDatastore.GetAllDevices()
 	if err != nil {
-		log.Print(nil).Error("Failed to Load WhatsApp Client Devices from Datastore")
+		log.Print(nil).Error("Failed to Load WhatsApp Client Devices from Datastore: " + err.Error())
+		return
 	}
 
 	// Do Reconnect for Every Device in Datastore
@@ -28,10 +32,15 @@ func Startup() {
 		// Initialize WhatsApp Client
 		pkgWhatsApp.WhatsAppInitClient(device, jid)
 
-		// Reconnect WhatsApp Client WebSocket
-		err = pkgWhatsApp.WhatsAppReconnect(jid)
-		if err != nil {
-			log.Print(nil).Error(err.Error())
-		}
+		// Reconnect WhatsApp Client WebSocket with delay
+		go func(deviceJID string) {
+			// Stagger reconnections to avoid overwhelming the server
+			time.Sleep(time.Duration(len(pkgWhatsApp.WhatsAppClient)*2) * time.Second)
+			
+			err := pkgWhatsApp.WhatsAppReconnect(deviceJID)
+			if err != nil {
+				log.Print(nil).Error("Failed to reconnect " + pkgWhatsApp.WhatsAppDecomposeJID(deviceJID)[0:len(pkgWhatsApp.WhatsAppDecomposeJID(deviceJID))-4] + "xxxx: " + err.Error())
+			}
+		}(jid)
 	}
 }

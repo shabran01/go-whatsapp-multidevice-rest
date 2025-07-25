@@ -10,7 +10,8 @@ import (
 func Routines(cron *cron.Cron) {
 	log.Print(nil).Info("Running Routine Tasks")
 
-	cron.AddFunc("0 * * * * *", func() {
+	// Reduced frequency to avoid overwhelming the server
+	cron.AddFunc("0 */5 * * * *", func() {
 		// If WhatsAppClient Connection is more than 0
 		if len(pkgWhatsApp.WhatsAppClient) > 0 {
 			// Check Every Authenticated MSISDN
@@ -32,7 +33,41 @@ func Routines(cron *cron.Cron) {
 					// Logout WhatsAppClient Device
 					_ = pkgWhatsApp.WhatsAppLogout(jid)
 					delete(pkgWhatsApp.WhatsAppClient, jid)
+				} else {
+					// Check if client is still connected and healthy
+					if !client.IsConnected() || !client.IsLoggedIn() {
+						log.Print(nil).Warn("WhatsApp Client for " + maskJID + " is disconnected, attempting reconnection")
+						
+						go func(clientJID string) {
+							err := pkgWhatsApp.WhatsAppReconnect(clientJID)
+							if err != nil {
+								log.Print(nil).Error("Failed to reconnect " + maskJID + ": " + err.Error())
+							}
+						}(jid)
+					}
 				}
+			}
+		}
+	})
+	
+	// Add health check routine
+	cron.AddFunc("0 */10 * * * *", func() {
+		log.Print(nil).Info("Running WhatsApp Client Health Check")
+		
+		for jid, client := range pkgWhatsApp.WhatsAppClient {
+			if client == nil {
+				continue
+			}
+			
+			maskJID := jid[0:len(jid)-4] + "xxxx"
+			
+			// Check client health
+			if !client.IsConnected() {
+				log.Print(nil).Warn("Health Check: Client " + maskJID + " is not connected")
+			} else if !client.IsLoggedIn() {
+				log.Print(nil).Warn("Health Check: Client " + maskJID + " is not logged in")
+			} else {
+				log.Print(nil).Info("Health Check: Client " + maskJID + " is healthy")
 			}
 		}
 	})
