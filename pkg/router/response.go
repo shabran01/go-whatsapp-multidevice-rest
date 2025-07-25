@@ -7,7 +7,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 
-	"github.com/dimaskiddo/go-whatsapp-multidevice-rest/pkg/log"
+	"github.com/shabran01/go-whatsapp-multidevice-rest/pkg/log"
 )
 
 type ResSuccess struct {

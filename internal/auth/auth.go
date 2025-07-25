@@ -7,10 +7,10 @@ import (
 	"github.com/golang-jwt/jwt"
 	"github.com/labstack/echo/v4"
 
-	typAuth "github.com/dimaskiddo/go-whatsapp-multidevice-rest/internal/auth/types"
+	typAuth "github.com/shabran01/go-whatsapp-multidevice-rest/internal/auth/types"
 
-	"github.com/dimaskiddo/go-whatsapp-multidevice-rest/pkg/auth"
-	"github.com/dimaskiddo/go-whatsapp-multidevice-rest/pkg/router"
+	"github.com/shabran01/go-whatsapp-multidevice-rest/pkg/auth"
+	"github.com/shabran01/go-whatsapp-multidevice-rest/pkg/router"
 )
 
 // Auth

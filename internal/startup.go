@@ -1,8 +1,10 @@
 package internal
 
 import (
-	"github.com/dimaskiddo/go-whatsapp-multidevice-rest/pkg/log"
-	pkgWhatsApp "github.com/dimaskiddo/go-whatsapp-multidevice-rest/pkg/whatsapp"
+	"time"
+
+	"github.com/shabran01/go-whatsapp-multidevice-rest/pkg/log"
+	pkgWhatsApp "github.com/shabran01/go-whatsapp-multidevice-rest/pkg/whatsapp"
 )
 
 func Startup() {

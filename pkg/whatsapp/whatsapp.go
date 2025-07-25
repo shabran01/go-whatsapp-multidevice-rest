@@ -30,8 +30,8 @@ import (
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types"
 
-	"github.com/dimaskiddo/go-whatsapp-multidevice-rest/pkg/env"
-	"github.com/dimaskiddo/go-whatsapp-multidevice-rest/pkg/log"
+	"github.com/shabran01/go-whatsapp-multidevice-rest/pkg/env"
+	"github.com/shabran01/go-whatsapp-multidevice-rest/pkg/log"
 )
 
 var WhatsAppDatastore *sqlstore.Container

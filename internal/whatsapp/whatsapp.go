@@ -10,11 +10,11 @@ import (
 	"github.com/golang-jwt/jwt"
 	"github.com/labstack/echo/v4"
 
-	"github.com/dimaskiddo/go-whatsapp-multidevice-rest/pkg/router"
-	pkgWhatsApp "github.com/dimaskiddo/go-whatsapp-multidevice-rest/pkg/whatsapp"
+	"github.com/shabran01/go-whatsapp-multidevice-rest/pkg/router"
+	pkgWhatsApp "github.com/shabran01/go-whatsapp-multidevice-rest/pkg/whatsapp"
 
-	typAuth "github.com/dimaskiddo/go-whatsapp-multidevice-rest/internal/auth/types"
-	typWhatsApp "github.com/dimaskiddo/go-whatsapp-multidevice-rest/internal/whatsapp/types"
+	typAuth "github.com/shabran01/go-whatsapp-multidevice-rest/internal/auth/types"
+	typWhatsApp "github.com/shabran01/go-whatsapp-multidevice-rest/internal/whatsapp/types"
 )
 
 func jwtPayload(c echo.Context) typAuth.AuthJWTClaimsPayload {

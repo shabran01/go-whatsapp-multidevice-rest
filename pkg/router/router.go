@@ -1,7 +1,7 @@
 package router
 
 import (
-	"github.com/dimaskiddo/go-whatsapp-multidevice-rest/pkg/env"
+	"github.com/shabran01/go-whatsapp-multidevice-rest/pkg/env"
 )
 
 var BaseURL, CORSOrigin, BodyLimit string
